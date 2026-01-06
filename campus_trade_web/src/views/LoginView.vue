@@ -1,178 +1,139 @@
 <template>
-  <div class="apple-container">
-    <div class="apple-card">
-      <div class="header-section">
-        <div class="app-logo">
-          <div class="logo-circle"></div>
-        </div>
-        <h2>欢迎回来</h2>
-        <p class="slogan">发现校园好物，开启绿色循环生活</p>
+  <div class="login-container">
+    <div class="login-card">
+      <div class="brand">
+        <span class="logo-icon">🔄</span>
+        <h1 class="logo-name">Campus<span>Trade</span></h1>
+        <p class="subtitle">{{ isLogin ? '欢迎回来，校友' : '创建您的校园账号' }}</p>
       </div>
 
-      <div class="form-section">
-        <div class="input-group">
-          <label>账号</label>
-          <input v-model="loginData.username" type="text" placeholder="学号 / 用户名" />
+      <div class="form-group">
+        <div class="input-wrapper">
+          <span class="icon">👤</span>
+          <input v-model="form.username" type="text" placeholder="用户名">
         </div>
-        <div class="input-group">
-          <label>密码</label>
-          <input v-model="loginData.password" type="password" placeholder="请输入您的密码" @keyup.enter="doLogin" />
+        <div class="input-wrapper">
+          <span class="icon">🔒</span>
+          <input v-model="form.password" type="password" placeholder="密码">
+        </div>
+        <div v-if="!isLogin" class="input-wrapper animate-in">
+          <span class="icon">🛡️</span>
+          <input v-model="form.repassword" type="password" placeholder="确认密码">
         </div>
       </div>
 
-      <div class="button-section">
-        <button class="primary-btn" @click="doLogin">登录</button>
-        <button class="secondary-btn">创建新账号</button>
-      </div>
+      <button class="btn-submit" @click="handleSubmit" :disabled="loading">
+        {{ loading ? '同步中...' : (isLogin ? '登录' : '立即注册') }}
+      </button>
 
-      <div class="footer-section">
-        <a href="#">忘记密码？</a>
-        <span class="divider">|</span>
-        <a href="#">隐私政策</a>
+      <div class="footer-links">
+        <a href="#" @click.prevent="toggleMode">
+          {{ isLogin ? '没有账号？现在注册' : '已有账号？现在登录' }}
+        </a>
       </div>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { ref, reactive } from 'vue'
+import { useRouter } from 'vue-router'
 import axios from 'axios'
-import { useRouter } from 'vue-router' // 引入路由工具
 
-const loginData = ref({ 
-  username: '', 
-  password: '' 
+const router = useRouter()
+const isLogin = ref(true)
+const loading = ref(false)
+
+const form = reactive({
+  username: '',
+  password: '',
+  repassword: '' // 确保拼写一致
 })
 
-const router = useRouter() // 初始化
+const toggleMode = () => {
+  isLogin.value = !isLogin.value
+  form.username = ''
+  form.password = ''
+  form.repassword = ''
+}
 
-const doLogin = async () => {
-  if (!loginData.value.username || !loginData.value.password) {
-    alert('请填写完整的账号和密码')
-    return
-  }
 
+const handleSubmit = async () => {
+  if (!form.username || !form.password) return alert('请填写完整信息')
+  
+  loading.value = true
   try {
-    // 这里的地址对应后端的 8080 端口
-    const response = await axios.post('http://localhost:8080/user/login', loginData.value)
-    
-    if(response.data.code === 200) {
-      console.log('登录成功')
-      // 关键步骤：成功后自动跳转到 /home
-      router.push('/home') 
+    const res = await axios.post('http://localhost:8080/user/login', {
+      username: form.username,
+      password: form.password
+    })
+
+    // 1. 只要后端吐出了包含 "success" 的东西，我们就强制认为是登录成功
+    const rawData = res.data;
+    const isLoginSuccess = rawData === 'success' || (rawData && (rawData.code === 200 || rawData.msg === 'success' || rawData.code === 1));
+
+    if (isLoginSuccess) {
+      // 2. 准备用户信息
+      let userData = { username: form.username, role: 'user' };
+      if (typeof rawData === 'object' && rawData.data) {
+        userData = rawData.data;
+      }
+
+      // 3. 核心：在这里做身份“强行分流”
+      // 如果是 GlobalZhou 或者 role 是 admin，就去管理页
+      if (form.username === 'GlobalZhou' || userData.role === 'admin') {
+        userData.role = 'admin';
+        localStorage.setItem('user', JSON.stringify(userData));
+        
+        // 暴力跳转到管理页
+        console.log("执行管理员跳转...");
+        router.push('/admin').then(() => {
+          console.log("路由跳转成功");
+        }).catch(() => {
+          window.location.href = '/admin'; // 最后的保底，直接刷新页面跳转
+        });
+        
+      } else {
+        // 普通学生去首页
+        localStorage.setItem('user', JSON.stringify(userData));
+        
+        console.log("执行普通用户跳转...");
+        router.push('/home').then(() => {
+          console.log("路由跳转成功");
+        }).catch(() => {
+          window.location.href = '/home'; // 最后的保底
+        });
+      }
     } else {
-      alert('登录失败：' + response.data.msg)
+      alert(rawData.msg || '登录失败，请检查账号密码');
     }
-  } catch (error) {
-    console.error('请求异常：', error)
-    alert('连接失败：请检查后端服务是否开启')
+  } catch (err) {
+    console.error("网络请求错误:", err);
+    alert('连接服务器失败，请确保后端 8080 端口已开启');
+  } finally {
+    loading.value = false;
   }
 }
+
 </script>
 
 <style scoped>
-.apple-container {
-  width: 100vw;
-  height: 100vh;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  background-color: #f5f5f7;
-  font-family: -apple-system, sans-serif;
-  margin: 0;
-}
-
-.apple-card {
-  width: 100%;
-  max-width: 420px;
-  padding: 50px 40px;
-  background: #ffffff;
-  border-radius: 28px;
-  box-shadow: 0 20px 40px rgba(0,0,0,0.04);
-  text-align: center;
-}
-
-.logo-circle {
-  width: 64px;
-  height: 64px;
-  background: linear-gradient(135deg, #0071e3, #40a9ff);
-  border-radius: 16px;
-  margin: 0 auto 24px;
-}
-
-h2 {
-  font-size: 28px;
-  color: #1d1d1f;
-  font-weight: 600;
-  margin: 0 0 10px;
-}
-
-.slogan {
-  font-size: 15px;
-  color: #86868b;
-  margin-bottom: 40px;
-}
-
-.input-group {
-  text-align: left;
-  margin-bottom: 20px;
-}
-
-.input-group label {
-  display: block;
-  font-size: 13px;
-  color: #86868b;
-  margin-left: 4px;
-  margin-bottom: 8px;
-}
-
-input {
-  width: 100%;
-  padding: 16px;
-  background: #f5f5f7;
-  border: 1px solid transparent;
-  border-radius: 14px;
-  font-size: 16px;
-  box-sizing: border-box;
-  outline: none;
-}
-
-input:focus {
-  background: #ffffff;
-  border-color: #0071e3;
-  box-shadow: 0 0 0 4px rgba(0, 113, 227, 0.1);
-}
-
-.primary-btn {
-  width: 100%;
-  padding: 16px;
-  background: #0071e3;
-  color: white;
-  border: none;
-  border-radius: 14px;
-  font-size: 17px;
-  font-weight: 500;
-  cursor: pointer;
-  margin-top: 20px;
-}
-
-.secondary-btn {
-  width: 100%;
-  padding: 16px;
-  background: transparent;
-  color: #0071e3;
-  border: none;
-  font-size: 15px;
-  cursor: pointer;
-  margin-top: 10px;
-}
-
-.footer-section {
-  margin-top: 32px;
-  font-size: 13px;
-  color: #86868b;
-}
-
-.footer-section a { color: #06c; text-decoration: none; }
-.divider { color: #d2d2d7; margin: 0 10px; }
+.login-container { height: 100vh; display: flex; align-items: center; justify-content: center; background: #f5f5f7; font-family: -apple-system, sans-serif; }
+.login-card { background: white; padding: 40px; border-radius: 24px; width: 340px; box-shadow: 0 10px 30px rgba(0,0,0,0.05); border: 1px solid #d2d2d7; text-align: center; }
+.brand { margin-bottom: 30px; }
+.logo-icon { font-size: 40px; display: block; margin-bottom: 10px; }
+.logo-name { font-size: 24px; font-weight: 700; color: #1d1d1f; }
+.logo-name span { color: #0071e3; }
+.subtitle { font-size: 13px; color: #86868b; margin-top: 5px; }
+.form-group { margin-bottom: 25px; }
+.input-wrapper { display: flex; align-items: center; background: #f5f5f7; margin-bottom: 12px; padding: 12px 15px; border-radius: 12px; border: 1px solid transparent; transition: all 0.2s; }
+.input-wrapper:focus-within { border-color: #0071e3; background: white; }
+.icon { margin-right: 10px; font-size: 14px; }
+input { border: none; outline: none; width: 100%; font-size: 14px; background: transparent; }
+.btn-submit { width: 100%; padding: 14px; border-radius: 12px; border: none; background: #0071e3; color: white; font-weight: 600; font-size: 15px; cursor: pointer; }
+.btn-submit:disabled { opacity: 0.5; }
+.footer-links { margin-top: 20px; }
+.footer-links a { font-size: 13px; color: #0071e3; text-decoration: none; }
+.animate-in { animation: fadeIn 0.3s ease-in-out; }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
 </style>
